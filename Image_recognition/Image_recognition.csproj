@@ -10,7 +10,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\Image_recog_lib\Image_recog_lib.csproj" />
+    <ProjectReference Include="..\Image_recog_lib\ImageRecognotionLibrary.csproj" />
   </ItemGroup>
 
 </Project>

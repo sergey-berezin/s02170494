@@ -1,25 +1,46 @@
 ﻿using System;
-using SixLabors.ImageSharp; 
-using SixLabors.ImageSharp.PixelFormats;
-using System.Linq;
-using SixLabors.ImageSharp.Processing;
-using Microsoft.ML.OnnxRuntime.Tensors;
-using Microsoft.ML.OnnxRuntime;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Threading;
-using System.Threading.Tasks;
-using System.Drawing;
-using System.Collections.Concurrent;
+using Microsoft.ML.OnnxRuntime;
+using Microsoft.ML.OnnxRuntime.Tensors;
+using SixLabors.ImageSharp; 
+using SixLabors.ImageSharp.PixelFormats;
+using SixLabors.ImageSharp.Processing;
 
-namespace Image_recog_lib
+namespace ImageRecognitionLibrary
 {
+    public class PredictionResult
+    {
+        public string Path;
+        public string ClassLabel;
+        public PredictionResult(string path, string classLabel)
+        {
+            this.Path = path;
+            this.ClassLabel = classLabel;
+        }
+    }
     public class Recognize
     {
-        public void Img_process(string imagePath, int tmp)
+        public static InferenceSession Session;
+        public ConcurrentQueue<PredictionResult> ResultPull;
+       
+        public Recognize(string modelPath)
         {
+            Session = new InferenceSession(modelPath);
             
-            using var image = Image.Load<Rgb24>((string) imagePath ?? "image.jpg");
+        }
+
+        public void Stop()
+        {
+            cts.Cancel();
+        }
+
+        public void ImageProcess(string imagePath, int tmp)
+        {
+            using var image = Image.Load<Rgb24>((string)imagePath ?? "image.jpg");
 
             const int TargetWidth = 224;
             const int TargetHeight = 224;
@@ -49,112 +70,67 @@ namespace Image_recog_lib
                 }
             }
 
-
             // Вычисляем предсказание нейросетью
             var inputs = new List<NamedOnnxValue>
             {
-                NamedOnnxValue.CreateFromTensor(session.InputMetadata.Keys.First(),input)
+                NamedOnnxValue.CreateFromTensor(Session.InputMetadata.Keys.First(), input)
             };
-            using IDisposableReadOnlyCollection<DisposableNamedOnnxValue> results = session.Run(inputs);
+            using IDisposableReadOnlyCollection<DisposableNamedOnnxValue> results = Session.Run(inputs);
 
             var output = results.First().AsEnumerable<float>().ToArray();
             var sum = output.Sum(x => (float)Math.Exp(x));
             var softmax = output.Select(x => (float)Math.Exp(x) / sum);
 
             int index = softmax.ToList().IndexOf(softmax.Max());
-            TryEqueueEvent((string)imagePath + ' ' + classLabels[index], resultPull);
+
+            TryEqueueEvent(new PredictionResult((string)imagePath, classLabels[index]), ResultPull);
             
         }
-        public Recognize(string modelPath)
-        {
-            session = new InferenceSession(modelPath);
-        }
-        public static InferenceSession session;
-        public ConcurrentQueue<string> resultPull;
-        public ConcurrentQueue<string> lastTread;
 
-        public void TryEqueueEvent(string newClass, ConcurrentQueue<string> res )
+
+        public void TryEqueueEvent(PredictionResult pr, ConcurrentQueue<PredictionResult> res )
         {
 
-            res.Enqueue(newClass);
+            res.Enqueue(pr);
             Notify?.Invoke(res, new EventArgs());
         }
 
         public delegate void AccountHandler(object sender, EventArgs e);
         public event AccountHandler Notify;
-        public static CancellationTokenSource cts;
-        public static CancellationTokenSource ctsLast;
-
+        public static CancellationTokenSource cts = new CancellationTokenSource();
+        public static int endSignal;
 
         public void ParallelProcess(string dirPath)
         {
             string[] files = Directory.GetFiles(dirPath, "*.jpg");
-            
-            resultPull = new ConcurrentQueue<string>();
 
-            cts = new CancellationTokenSource();
-            ctsLast = new CancellationTokenSource();
-
-            Thread cancelTread = new Thread(() =>
-            {
-                while (true)
-                {
-                    if (Recognize.ctsLast.Token.IsCancellationRequested)
-                    {
-
-                        cts.Cancel();
-                        break;
-                    }
-                    if (Console.KeyAvailable && Console.ReadKey(true).Key == ConsoleKey.C)
-                    {
-                        
-                        cts.Cancel();
-                        break;
-                    }
-                }
-            }
-            );
-            cancelTread.Start();
-
+            ResultPull = new ConcurrentQueue<PredictionResult>();
 
             var events = new AutoResetEvent[files.Length];
 
+            
+
             for (int i = 0; i < files.Length; i++)
             {
-                    
-                    
                 events[i] = new AutoResetEvent(false);
-                        
-                ThreadPool.QueueUserWorkItem(tmp =>
-                {
+                ThreadPool.QueueUserWorkItem(tmp => 
+                { 
                     int count = (int)tmp;
-                    
                     if (!cts.Token.IsCancellationRequested)
-                        Img_process(files[count], count);
+                        ImageProcess(files[count], count);
+                    Interlocked.Increment(ref endSignal);
                     events[count].Set();
-                    if (count == files.Length-1)
-                    {
-                        
-                        ctsLast.Cancel();
-                        
-                    }
-                        
+                    
                 }, i);
-
             }
-            
-            
+
 
             for (int i = 0; i < files.Length; i++)
             {
                 events[i].WaitOne();
             }
-            
-            cancelTread.Join();
 
         }
-
-
 
         static readonly string[] classLabels = new[]
         {
