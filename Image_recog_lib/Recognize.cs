@@ -25,9 +25,8 @@ namespace ImageRecognitionLibrary
     public class Recognize
     {
         public static InferenceSession Session;
-        public ConcurrentQueue<PredictionResult> ResultPull;
        
-        public Recognize(string modelPath)
+        public Recognize(string modelPath = "..\\..\\..\\..\\Image_recog_lib\\resnet34-v2-7.onnx")
         {
             Session = new InferenceSession(modelPath);
             
@@ -83,19 +82,13 @@ namespace ImageRecognitionLibrary
 
             int index = softmax.ToList().IndexOf(softmax.Max());
 
-            TryEqueueEvent(new PredictionResult((string)imagePath, classLabels[index]), ResultPull);
-            
+            Notify?.Invoke(new PredictionResult((string)imagePath, classLabels[index]), new EventArgs());
+
         }
 
 
-        public void TryEqueueEvent(PredictionResult pr, ConcurrentQueue<PredictionResult> res )
-        {
 
-            res.Enqueue(pr);
-            Notify?.Invoke(res, new EventArgs());
-        }
-
-        public delegate void AccountHandler(object sender, EventArgs e);
+        public delegate void AccountHandler(PredictionResult sender, EventArgs e);
         public event AccountHandler Notify;
         public static CancellationTokenSource cts = new CancellationTokenSource();
         public static int endSignal;
@@ -104,11 +97,8 @@ namespace ImageRecognitionLibrary
         {
             string[] files = Directory.GetFiles(dirPath, "*.jpg");
 
-            ResultPull = new ConcurrentQueue<PredictionResult>();
-
             var events = new AutoResetEvent[files.Length];
 
-            
 
             for (int i = 0; i < files.Length; i++)
             {

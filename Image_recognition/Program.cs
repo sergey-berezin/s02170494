@@ -9,13 +9,12 @@ namespace Image_recognition
 {
     class Program
     {
-        static void Pred(object sender, EventArgs e)
+        static void Pred(PredictionResult sender, EventArgs e)
         {
-            PredictionResult item;
-            if ((ConcurrentQueue<PredictionResult>)sender != null)
+            if (sender != null)
             {
-                ((ConcurrentQueue<PredictionResult>)sender).TryDequeue(out item);
-                Console.WriteLine($"file: {item.Path} result: {item.ClassLabel}");
+                
+                Console.WriteLine($"file: {sender.Path} result: {sender.ClassLabel}");
             }
         }
 
