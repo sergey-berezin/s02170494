@@ -15,6 +15,7 @@ namespace Image_recognition
             {
                 
                 Console.WriteLine($"file: {sender.Path} result: {sender.ClassLabel}");
+
             }
         }
 

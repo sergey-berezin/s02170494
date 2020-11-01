@@ -81,14 +81,11 @@ namespace ImageRecognitionLibrary
             var softmax = output.Select(x => (float)Math.Exp(x) / sum);
 
             int index = softmax.ToList().IndexOf(softmax.Max());
-
+          
             Notify?.Invoke(new PredictionResult((string)imagePath, classLabels[index]), new EventArgs());
 
         }
 
-
-
-        public delegate void AccountHandler(PredictionResult sender, EventArgs e);
         public event AccountHandler Notify;
         public static CancellationTokenSource cts = new CancellationTokenSource();
         public static int endSignal;
