@@ -82,22 +82,21 @@ namespace ImageRecognitionLibrary
 
             int index = softmax.ToList().IndexOf(softmax.Max());
           
-            Notify?.Invoke(new PredictionResult((string)imagePath, classLabels[index]), new EventArgs());
+            Notify?.Invoke(new PredictionResult((string)imagePath, classLabels[index]), new EventArgs(), false);
 
         }
-
-        public event AccountHandler Notify;
+        public delegate void PredictionHandler(PredictionResult sender, EventArgs e, bool flag);
+        public event PredictionHandler Notify;
         public static CancellationTokenSource cts = new CancellationTokenSource();
         public static int endSignal;
 
-        public void ParallelProcess(string dirPath)
+        public void ParallelProcess(List<string> files)
         {
-            string[] files = Directory.GetFiles(dirPath, "*.jpg");
 
-            var events = new AutoResetEvent[files.Length];
+            var events = new AutoResetEvent[files.Count];
 
 
-            for (int i = 0; i < files.Length; i++)
+            for (int i = 0; i < files.Count; i++)
             {
                 events[i] = new AutoResetEvent(false);
                 ThreadPool.QueueUserWorkItem(tmp => 
@@ -112,7 +111,7 @@ namespace ImageRecognitionLibrary
             }
 
 
-            for (int i = 0; i < files.Length; i++)
+            for (int i = 0; i < files.Count; i++)
             {
                 events[i].WaitOne();
             }
