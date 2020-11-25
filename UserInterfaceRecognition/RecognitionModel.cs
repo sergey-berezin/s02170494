@@ -2,6 +2,8 @@
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
+using System.ComponentModel.DataAnnotations;
+using System.ComponentModel.DataAnnotations.Schema;
 using System.IO;
 using System.Linq;
 using System.Runtime.CompilerServices;
@@ -18,6 +20,7 @@ using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Navigation;
 using System.Windows.Shapes;
+using Microsoft.EntityFrameworkCore;
 
 namespace UserInterfaceRecognition
 {
@@ -25,9 +28,12 @@ namespace UserInterfaceRecognition
     {
         private string classLabel;
 
+
         public event PropertyChangedEventHandler PropertyChanged;
 
-        private BitmapImage image;
+        private Blob blobImage;
+        [Key]
+        public int Id { get; set; }
         public string Path { get; set; }
 
         public string ClassLabel
@@ -43,16 +49,16 @@ namespace UserInterfaceRecognition
             }
         }
 
-        public BitmapImage Image
+        public Blob Image
         {
             get
             {
-                return image;
+                return blobImage;
             }
 
             set
             {
-                image = value;
+                blobImage = value;
                 PropertyChanged?.Invoke(this, new PropertyChangedEventArgs("Image"));
             }
         }
@@ -61,8 +67,12 @@ namespace UserInterfaceRecognition
         {
             this.ClassLabel = label;
             this.Path = name;
-            this.Image = new BitmapImage(new Uri(name));
+            this.Image = new Blob(name);
         }
+
+
+        public RecognitionModel()
+        { }
     }
 
 }
