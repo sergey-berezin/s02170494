@@ -10,11 +10,11 @@ namespace UserInterfaceRecognition
     {
         [Key]
         public string Name { get; set; }
-        public List<RecognitionModel> RecogModel { get; set; }
-        public ClassInfo(string name = "", RecognitionModel rec = null)
+        public List<DbRecognitionModel> RecogModel { get; set; }
+        public ClassInfo(string name, DbRecognitionModel rec)
         {
             this.Name = name;
-            this.RecogModel = new List<RecognitionModel>();
+            this.RecogModel = new List<DbRecognitionModel>();
             this.RecogModel.Add(rec);
         }
         public ClassInfo()

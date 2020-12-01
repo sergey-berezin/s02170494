@@ -31,7 +31,7 @@ namespace UserInterfaceRecognition
 
         public event PropertyChangedEventHandler PropertyChanged;
 
-        private Blob blobImage;
+        private byte[] blobImage;
         [Key]
         public int Id { get; set; }
         public string Path { get; set; }
@@ -49,7 +49,7 @@ namespace UserInterfaceRecognition
             }
         }
 
-        public Blob Image
+        public byte[] Image
         {
             get
             {
@@ -67,12 +67,28 @@ namespace UserInterfaceRecognition
         {
             this.ClassLabel = label;
             this.Path = name;
-            this.Image = new Blob(name);
+            if (name != null)
+                this.Image = File.ReadAllBytes(name);
         }
+
+        public RecognitionModel(ServerRecognitionModel srm)
+        {
+            this.ClassLabel = srm.ClassLabel;
+            this.Path = srm.Path;
+            this.Image = Convert.FromBase64String(srm.ImageString);
+        }
+
 
 
         public RecognitionModel()
         { }
+
+        public RecognitionModel(string p, string cl, string img)
+        {
+            this.Path = p;
+            this.ClassLabel = cl;
+            this.Image = Convert.FromBase64String(img);
+        }
     }
 
 }
