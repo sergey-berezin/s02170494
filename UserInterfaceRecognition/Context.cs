@@ -7,7 +7,7 @@ namespace UserInterfaceRecognition
 {
     public class Context: DbContext
     {
-        public DbSet<RecognitionModel> DataBaseInfo { get; set; }
+        public DbSet<DbRecognitionModel> DataBaseInfo { get; set; }
         public DbSet<ClassInfo> ClassLabelsInfo { get; set; }
         public Context()
         {

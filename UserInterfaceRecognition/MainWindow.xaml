@@ -10,7 +10,7 @@
     <Window.Resources>
         <DataTemplate x:Key="Images_Template">
             <StackPanel Orientation="Horizontal">
-                <Image Source="{Binding Path=Path}" Width="100" Height="100" />
+                <Image Source="{Binding Path=Image}" Width="100" Height="100" />
             </StackPanel>
         </DataTemplate>
     </Window.Resources>

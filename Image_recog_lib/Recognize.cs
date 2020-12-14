@@ -14,13 +14,16 @@ namespace ImageRecognitionLibrary
 {
     public class PredictionResult
     {
-        public string Path;
-        public string ClassLabel;
+        public string Path { get; set; }
+        public string ClassLabel { get; set; }
         public PredictionResult(string path, string classLabel)
         {
             this.Path = path;
             this.ClassLabel = classLabel;
         }
+
+        public PredictionResult()
+        { }
     }
     public class Recognize
     {
@@ -85,14 +88,64 @@ namespace ImageRecognitionLibrary
             Notify?.Invoke(new PredictionResult((string)imagePath, classLabels[index]), new EventArgs(), false);
 
         }
-        public delegate void PredictionHandler(PredictionResult sender, EventArgs e, bool flag);
+
+        public void ImageProcess1(string imagePath, int tmp, byte[] img)
+        {
+            using var image = Image.Load<Rgb24>(img);
+
+            const int TargetWidth = 224;
+            const int TargetHeight = 224;
+
+            // Изменяем размер картинки до 224 x 224
+            image.Mutate(x =>
+            {
+                x.Resize(new ResizeOptions
+                {
+                    Size = new SixLabors.ImageSharp.Size(TargetWidth, TargetHeight),
+                    Mode = ResizeMode.Crop // Сохраняем пропорции обрезая лишнее
+                });
+            });
+
+            // Перевод пикселов в тензор и нормализация
+            var input = new DenseTensor<float>(new[] { 1, 3, TargetHeight, TargetWidth });
+            var mean = new[] { 0.485f, 0.456f, 0.406f };
+            var stddev = new[] { 0.229f, 0.224f, 0.225f };
+            for (int y = 0; y < TargetHeight; y++)
+            {
+                Span<Rgb24> pixelSpan = image.GetPixelRowSpan(y);
+                for (int x = 0; x < TargetWidth; x++)
+                {
+                    input[0, 0, y, x] = ((pixelSpan[x].R / 255f) - mean[0]) / stddev[0];
+                    input[0, 1, y, x] = ((pixelSpan[x].G / 255f) - mean[1]) / stddev[1];
+                    input[0, 2, y, x] = ((pixelSpan[x].B / 255f) - mean[2]) / stddev[2];
+                }
+            }
+
+            // Вычисляем предсказание нейросетью
+            var inputs = new List<NamedOnnxValue>
+            {
+                NamedOnnxValue.CreateFromTensor(Session.InputMetadata.Keys.First(), input)
+            };
+            using IDisposableReadOnlyCollection<DisposableNamedOnnxValue> results = Session.Run(inputs);
+
+            var output = results.First().AsEnumerable<float>().ToArray();
+            var sum = output.Sum(x => (float)Math.Exp(x));
+            var softmax = output.Select(x => (float)Math.Exp(x) / sum);
+
+            int index = softmax.ToList().IndexOf(softmax.Max());
+
+            Notify?.Invoke(new PredictionResult((string)imagePath, classLabels[index]), new EventArgs(), false);
+
+        }
+
+        public delegate void PredictionHandler(PredictionResult sender, EventArgs e, bool flag = false);
         public event PredictionHandler Notify;
         public static CancellationTokenSource cts = new CancellationTokenSource();
         public static int endSignal;
 
         public void ParallelProcess(List<string> files)
         {
-
+            endSignal = 0;
             var events = new AutoResetEvent[files.Count];
 
 
@@ -116,6 +169,30 @@ namespace ImageRecognitionLibrary
                 events[i].WaitOne();
             }
 
+        }
+
+        public void ParallelProcessFromServer(List<Tuple<string, byte[]>> item)
+        {
+            var events = new AutoResetEvent(false);
+            endSignal = 0;
+            
+            for (int i = 0; i < item.Count; i++)
+            {
+                
+                ThreadPool.QueueUserWorkItem(tmp =>
+                {
+                    int count = (int)tmp;
+                    if (!cts.Token.IsCancellationRequested)
+                        ImageProcess1(item[count].Item1, count, item[count].Item2);
+                    Interlocked.Increment(ref endSignal);
+                    if (endSignal == item.Count)
+                        events.Set();
+
+                }, i);
+            }
+
+
+            events.WaitOne();
         }
 
         static readonly string[] classLabels = new[]

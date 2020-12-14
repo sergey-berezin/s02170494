@@ -12,7 +12,9 @@ using System.ComponentModel;
 using System.Threading.Tasks;
 using System.IO;
 using Microsoft.EntityFrameworkCore;
-
+using System.Net.Http;
+using Newtonsoft.Json;
+using System.Net.Http.Headers;
 
 namespace UserInterfaceRecognition
 {
@@ -30,13 +32,17 @@ namespace UserInterfaceRecognition
         public Recognize Recon { get; set; }
         public Dispatcher Dispatcherr { get; set; }
         public Context DataBaseContext { get; set; }
+        public HttpClient Client { get; set; }
+        public string ServerUrl { get; set; } = "http://localhost:5000/imagerecognition";
+
+        public CancellationTokenSource cts { get; set; } = new CancellationTokenSource();
         public RecognitionViewModel()
         {
             this.Observ = new ObservableCollection<RecognitionModel>();
             this.ClassObserv = new ObservableCollection<Tuple<string, int>>();
             this.SelectedClassObserv = new ObservableCollection<RecognitionModel>();
             this.Recon = new Recognize();
-            this.Recon.Notify += OnPredictionCome;
+
             this.Dispatcherr = Dispatcher.CurrentDispatcher;
             this.DataBaseContext = new Context();
 
@@ -44,6 +50,8 @@ namespace UserInterfaceRecognition
             this.CancelRecognitionCommand = new Commands(Cancel);
             this.ClearDataBaseCommand = new Commands(Clear);
             this.StatisticCommand = new Commands(Statistic);
+
+            this.Client = new HttpClient();
         }
 
         private void OnPropertyChanged(string propertyName)
@@ -72,51 +80,9 @@ namespace UserInterfaceRecognition
             }
         }
 
-        private  void OnPredictionCome(PredictionResult pr, EventArgs e, bool isInBase = false)
-        {
+        
 
-            Dispatcherr.BeginInvoke(DispatcherPriority.Background,new Action(() =>
-            {
-                Observ.Add(new RecognitionModel(pr.Path, pr.ClassLabel));
-                int index = -1;
-                foreach (var tmp in ClassObserv)
-                {
-                    if (tmp.Item1.Equals(pr.ClassLabel))
-                    {
-                        index = ClassObserv.IndexOf(tmp);
-                        break;
-                    }
-                }
-                if (index != -1)
-                {
-                    ClassObserv[index] = new Tuple<string, int>(ClassObserv[index].Item1, ClassObserv[index].Item2 + 1);
-
-                }
-                else
-                    ClassObserv.Add(new Tuple<string, int>(pr.ClassLabel, 1));
-                if (!isInBase)
-                {
-                    var newElem = new RecognitionModel(pr.Path, pr.ClassLabel);
-                    DataBaseContext.DataBaseInfo.Add(newElem);
-                    DataBaseContext.SaveChanges();
-                    if (DataBaseContext.ClassLabelsInfo.Find(newElem.ClassLabel) == null)
-                    {
-                        DataBaseContext.ClassLabelsInfo.Add(new ClassInfo(newElem.ClassLabel, newElem));
-                    }
-                    else
-                    {
-                        DataBaseContext.ClassLabelsInfo.Find(newElem.ClassLabel).RecogModel.Add(newElem);
-                    }
-                    DataBaseContext.SaveChanges();
-                   
-                }
-
-
-            }));
-            
-        }
-
-        private void Start(object sender)
+        private async void Start(object sender)
         {
             FolderBrowserDialog fbd = new FolderBrowserDialog();
             if (fbd.ShowDialog() == DialogResult.OK)
@@ -124,26 +90,83 @@ namespace UserInterfaceRecognition
                 ClassObserv.Clear();
                 Observ.Clear();
                 SelectedClassObserv.Clear();
-                DirectoryInfo dirInfo = new DirectoryInfo(fbd.SelectedPath);
-                FileInfo[] files = dirInfo.GetFiles("*.jpg");
-                List<string> imagesNotInBase = new List<string>();
-                var tmp = DataBaseContext.DataBaseInfo.Include(p => p.Image);
-                foreach (var item in files)
+                try
                 {
-                    foreach (var it in tmp.Where(p => p.Path == item.FullName && p.Image.ImageBlob.SequenceEqual(File.ReadAllBytes(item.FullName))))
+                    DirectoryInfo dirInfo = new DirectoryInfo(fbd.SelectedPath);
+                    FileInfo[] files = dirInfo.GetFiles("*.jpg");
+                    var list = new List<DataForServer>();
+                    foreach (var ffile in files)
                     {
-                        PredictionResult findPred = new PredictionResult(it.Path, it.ClassLabel);
-                        OnPredictionCome(findPred, null, true);
+                        list.Add(new DataForServer(ffile.FullName, Convert.ToBase64String(File.ReadAllBytes(ffile.FullName))));
                     }
-                    
-                    if (!tmp.Any(p => p.Path == item.FullName && p.Image.ImageBlob.SequenceEqual(File.ReadAllBytes(item.FullName))))
+                    var jsonString = JsonConvert.SerializeObject(list);
+                    var content = new StringContent(jsonString);
+                    content.Headers.ContentType = new MediaTypeHeaderValue("application/json");
+                    var response = await Client.PostAsync(ServerUrl + "/InBase", content, cts.Token);
+
+                    var result = JsonConvert.DeserializeObject<List<ServerRecognitionModel>>(response.Content.ReadAsStringAsync().Result);
+
+
+                    foreach (var item in result)
                     {
-                        imagesNotInBase.Add(item.FullName);
+                        Observ.Add(new RecognitionModel(item));
+                        int index = -1;
+                        foreach (var tmp in ClassObserv)
+                        {
+                            if (tmp.Item1.Equals(item.ClassLabel))
+                            {
+                                index = ClassObserv.IndexOf(tmp);
+                                break;
+                            }
+                        }
+                        if (index != -1)
+                        {
+                            ClassObserv[index] = new Tuple<string, int>(ClassObserv[index].Item1, ClassObserv[index].Item2 + 1);
+
+                        }
+                        else
+                            ClassObserv.Add(new Tuple<string, int>(item.ClassLabel, 1));
+
                     }
+
+                    var jsonString1 = JsonConvert.SerializeObject(list);
+                    var content1 = new StringContent(jsonString1);
+                    content1.Headers.ContentType = new MediaTypeHeaderValue("application/json");
+                    var responsenot = await Client.PostAsync(ServerUrl + "/NotInBase", content1, cts.Token);
+                    var h = responsenot.Content.ReadAsStringAsync().Result;
+                    var resultnot = JsonConvert.DeserializeObject<List<PredictionResult>>(h);
+                    if (resultnot != null)
+                    {
+                        foreach (var item in resultnot)
+                        {
+                            Observ.Add(new RecognitionModel(item.Path, item.ClassLabel));
+
+                            int index = -1;
+                            foreach (var tmp in ClassObserv)
+                            {
+                                if (tmp.Item1.Equals(item.ClassLabel))
+                                {
+                                    index = ClassObserv.IndexOf(tmp);
+                                    break;
+                                }
+                            }
+                            if (index != -1)
+                            {
+                                ClassObserv[index] = new Tuple<string, int>(ClassObserv[index].Item1, ClassObserv[index].Item2 + 1);
+
+                            }
+                            else
+                                ClassObserv.Add(new Tuple<string, int>(item.ClassLabel, 1));
+
+                        }
+                    }
+
                 }
 
-                Recognition(imagesNotInBase); 
-                
+                catch (TaskCanceledException) 
+                {
+                    MessageBox.Show("It was cancelling");
+                }
             }
         }
 
@@ -160,34 +183,49 @@ namespace UserInterfaceRecognition
 
         private void Cancel(object sender)
         {
-            this.Recon.Stop();
+            cts.Cancel();
+            cts = new CancellationTokenSource();
+
         }
         
         private void Clear(object sender)
         {
-            foreach (var item in DataBaseContext.DataBaseInfo)
+            ThreadPool.QueueUserWorkItem(new WaitCallback(param =>
             {
-                DataBaseContext.DataBaseInfo.Remove(item);
-            }
-            foreach (var item in DataBaseContext.ClassLabelsInfo)
-            {
-                DataBaseContext.ClassLabelsInfo.Remove(item);
-            }
-            DataBaseContext.SaveChanges();
-            ClassObserv.Clear();
-            Observ.Clear();
-            SelectedClassObserv.Clear();
+                try
+                {
+                    var httpResponse = Client.DeleteAsync(ServerUrl).Result;
+                    
+                }
+                catch (AggregateException)
+                {
+                    Dispatcherr.BeginInvoke(new Action(() =>
+                    {
+                        MessageBox.Show("Error");
+                    }));
+                }
+            }));
 
         }
 
         private void Statistic(object sender)
         {
-            StatisticInfo statistic = new StatisticInfo();
-            foreach (var item in DataBaseContext.ClassLabelsInfo.Include(p => p.RecogModel))
+            ThreadPool.QueueUserWorkItem(new WaitCallback(param =>
             {
-                statistic.stat.Add(item.Name, item.RecogModel.Count);
-            }
-            MessageBox.Show(statistic.ToString());
+                try
+                {
+                    var httpResponse = Client.GetAsync(ServerUrl).Result;
+                    var statistic = JsonConvert.DeserializeObject<StatisticInfo>(httpResponse.Content.ReadAsStringAsync().Result);
+                    MessageBox.Show(statistic.ToString());
+                }
+                catch (AggregateException)
+                {
+                    Dispatcherr.BeginInvoke(new Action(() =>
+                    {
+                        MessageBox.Show("Error");
+                    }));
+                }
+            }));
 
         }
 
